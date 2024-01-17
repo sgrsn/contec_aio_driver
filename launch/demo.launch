@@ -1,0 +1,7 @@
+<launch>
+  <node name="adc_main" pkg="contec_aio_driver" type="adc_main" output="screen">
+    <param name="device_name" value="AIO000"/>
+    <param name="ai_range" value="0"/>
+    <param name="ai_channels" value="2"/>
+  </node>
+</launch>
