@@ -2,6 +2,12 @@
   <node name="adc_main" pkg="contec_aio_driver" type="adc_main" output="screen">
     <param name="device_name" value="AIO000"/>
     <param name="ai_range" value="0"/>
-    <param name="ai_channels" value="2"/>
+    <param name="ai_channels" value="4"/>
+    <remap from="~channel_0" to="channel_0"/>
+    <remap from="~channel_1" to="channel_1"/>
+    <remap from="~channel_2" to="channel_2"/>
+    <remap from="~channel_3" to="channel_3"/>
+    <param name="offset_0" value="0"/>
+    <param name="offset_1" value="0"/>
   </node>
 </launch>

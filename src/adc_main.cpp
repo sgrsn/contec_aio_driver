@@ -31,8 +31,19 @@ public:
 
       if(!is_ok) continue;
 
+      //メモリ内格納サンプリング数の取得
+      long AiSamplingCount;
+		  Ret = AioGetAiSamplingCount(id_, &AiSamplingCount);
+      // printf("AiSamplingCount : %ld\n", AiSamplingCount);
+
       // ADコンバータからデータを読み取る
-      long AiSamplingTimes = ai_channels;
+      long AiSamplingTimes = AiSamplingCount;
+
+      //取得サンプリング数がデータ格納配列サイズを上回らないよう調整
+      if(AiSamplingTimes * ai_channels > 256){
+        AiSamplingTimes = 256 / ai_channels;
+      }
+
       Ret = AioGetAiSamplingDataEx(id_, &AiSamplingTimes, AiData);
       if(!isValidStatus(Ret))
       {
@@ -43,7 +54,7 @@ public:
       // データをROSトピックとしてパブリッシュ
       for (int i = 0; i < ai_channels; i++) {
         std_msgs::Float64 msg;
-        msg.data = AiData[i];
+        msg.data = AiData[i] - offset_[i];
         pub_[i].publish(msg);
       }
 
@@ -59,23 +70,29 @@ public:
 private:
   void init()
   {
+    // チャンネル数の設定
+    nh_.param("ai_channels", ai_channels, 1); 
+    
     // Device Setup
     initializeDevice();
 
-    // チャンネル数の設定
-    nh_.param("ai_channels", ai_channels, 1); 
     bool valid = checkRangeOfMaxChannel(static_cast<short>(ai_channels));
     if(!valid) 
     {
       long Ret = AioExit(id_);
       return;
     }
+    long Ret = AioSetAiChannels(id_, ai_channels);
+    if(!isValidStatus(Ret)) ROS_ERROR("AioSetAiChannels Failed");
+
+    offset_.resize(ai_channels, 0.0);
 
     // Publisher Setup
     for (int i = 0; i < ai_channels; i++)
     {
       std::string topic_name = "channel_" + std::to_string(i);
       pub_[i] = nh_.advertise<std_msgs::Float64>(topic_name.c_str(), 20);
+      nh_.param("offset_"+std::to_string(i), offset_[i], 0.0);
     }
   }
 
@@ -97,12 +114,18 @@ private:
     }
 
     // 入力レンジの設定(全チャンネル)
-    int ai_range;
-    nh_.param("ai_range", ai_range, 0);
-    Ret = AioSetAiRangeAll(id_, static_cast<short>(ai_range));
-    if(!isValidStatus(Ret))
+    //int ai_range;
+    //nh_.param("ai_range", ai_range, 0);
+    //Ret = AioSetAiRangeAll(id_, static_cast<short>(ai_range));
+    for (int i = 0; i < ai_channels; ++i) 
     {
-      ROS_ERROR("AioSetAiRangeAll Failed");
+      int range = PM10;
+      nh_.getParam("range_" + std::to_string(i), range);
+      Ret = AioSetAiRange(id_, i, range);
+      if(!isValidStatus(Ret))
+      {
+        ROS_ERROR("AioSetAiRange channel: %d, Failed", i);
+      }
     }
   }
 
@@ -127,7 +150,11 @@ private:
     Ret = AioSetAiStartTrigger(id_, 0);
     if(!isValidStatus(Ret)) ROS_ERROR("AioSetAiStartTrigger Failed");
 
-    // 変換停止条件の設定 : コマンド（AioStopAi ）
+    // サンプリング数の設定
+    Ret = AioSetAiEventSamplingTimes(id_, ai_channels);
+    if(!isValidStatus(Ret)) ROS_ERROR("AioSetAiEventSamplingTimes Failed");
+
+    // 変換停止条件の設定 : コマンド（AioStopAi）
     Ret = AioSetAiStopTrigger(id_, 4);
     if(!isValidStatus(Ret)) ROS_ERROR("AioSetAiStopTrigger Failed");
 
@@ -136,8 +163,6 @@ private:
     if(!isValidStatus(Ret)) ROS_ERROR("AioResetAiMemory Failed");
 
     // 変換開始
-    // long TimeOut_ms = 1000;
-    // Ret = AioStartAiSync(id_, TimeOut_ms);
     Ret = AioStartAi(id_);
     if(!isValidStatus(Ret)) ROS_ERROR("AioStartAi Failed");
   }
@@ -185,13 +210,14 @@ private:
   short id_;
   int ai_channels;
   double rate_;
+  std::vector<double> offset_;
 };
 }// namespace contec
 
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "contec_adc_driver");
-  contec::AnalogInput contec_driver(10000);
+  contec::AnalogInput contec_driver(2000);
   contec_driver.startPublish();
   ros::spin();
 }
